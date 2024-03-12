@@ -1,0 +1,109 @@
+%pip install -q mlflow
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras.datasets import mnist
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout, Activation, Flatten, Input
+from tensorflow.keras.optimizers import RMSprop, SGD, Adam
+from tensorflow.keras import regularizers
+from keras.callbacks import ModelCheckpoint, EarlyStopping
+!wget https://dagshub.com/jorgevc/Gatos-y-Perros/raw/24eaabd8ca81ed89f780138c1e3955ccd1f3d155/data/DogsCats.zip
+!unzip DogsCats.zip
+REPO_NAME= "perros-y-gatos"
+REPO_OWNER= "Tua352"
+USER_NAME = "Tua352"
+
+!pip install mlflow --quiet
+
+import mlflow
+import os
+from getpass import getpass
+
+os.environ['MLFLOW_TRACKING_USERNAME'] = USER_NAME
+os.environ['MLFLOW_TRACKING_PASSWORD'] = getpass('Enter your DAGsHub access token or password: ')
+
+mlflow.set_tracking_uri(f'https://dagshub.com/{REPO_OWNER}/{REPO_NAME}.mlflow')
+import os
+import cv2
+import numpy as np
+# Directorio donde se encuentran las imágenes
+data_dir = "train"
+
+# Categorías (perro y gato)
+categories = ["cat", "dog"]
+
+# Cargar las imágenes y las etiquetas
+images = []
+labels = []
+for category_id, category in enumerate(categories):
+    path = os.path.join(data_dir, category)
+    for img in os.listdir(path):
+        img_path = os.path.join(path, img)
+        img_data = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)  # Lee la imagen en escala de grises
+        img_data = cv2.resize(img_data, (28, 28))  # Cambiar el tamaño de la imagen a 28x28 para que coincida con el modelo MNIST
+        images.append(img_data)
+        labels.append(category_id)
+
+# Convertir las listas a matrices numpy
+x_data = np.array(images)
+y_data = np.array(labels)
+
+# Normalizar los valores de píxeles de 0 a 255 a un rango de 0 a 1
+x_data = x_data.astype('float32') / 255.0
+
+# Dividir el conjunto de datos en entrenamiento y prueba
+from sklearn.model_selection import train_test_split
+x_train, x_test, y_train, y_test = train_test_split(x_data, y_data, test_size=0.2, random_state=42)
+
+# Convertir las etiquetas a one-hot encoding
+num_classes = len(categories)
+y_trainc = keras.utils.to_categorical(y_train, num_classes)
+y_testc = keras.utils.to_categorical(y_test, num_classes)
+# Define los parámetros
+parameters = {
+    "batch_size": 128,
+    "epochs": 20,
+    "optimizer": Adam(),  # Usando el optimizador Adam
+    "loss": "categorical_crossentropy",
+}
+model = Sequential()
+model.add(Flatten(input_shape=(28, 28)))  # Aplanar las imágenes
+model.add(Dense(512, activation='sigmoid'))
+model.add(Dense(512, activation='relu', kernel_regularizer=regularizers.L1L2(l1=1e-5, l2=1e-4)))  # Regularización L1L2
+model.add(Dropout(0.5))  # Dropout para evitar el sobreajuste
+model.add(Dense(400))  # Capa lineal sin función de activación
+model.add(Dense(400, activation='selu', kernel_regularizer=regularizers.L1(0.01)))  # Regularización L1
+model.add(Dense(50, activation='exponential'))
+model.add(Dense(2, activation='softmax'))  # Capa de salida para clasificación binaria perros/gatos
+
+model.summary()
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras.datasets import mnist
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout, Activation, Flatten, Input
+from tensorflow.keras.optimizers import RMSprop, SGD, Adam
+from tensorflow.keras import regularizers
+from keras.callbacks import ModelCheckpoint, EarlyStopping
+
+mlflow.tensorflow.autolog()
+
+# specify the path where you want to save the model
+filepath = "best_model.hdf5"
+
+# initialize the ModelCheckpoint callback
+checkpoint = ModelCheckpoint(filepath, monitor='val_loss', verbose=1, save_best_only=True, mode='min')
+
+earlystop = EarlyStopping(monitor='val_loss',mode='min',restore_best_weights=True, patience=10,verbose=1)
+
+mlflow.set_experiment(experiment_name="Experimento 1")
+mlflow.start_run(nested='TRUE')
+
+model.compile(loss=parameters['loss'],optimizer=parameters['optimizer'],metrics=['accuracy'])
+history = model.fit(x_train, y_trainc,
+                    batch_size=parameters['batch_size'],
+                    epochs=parameters["epochs"],
+                    verbose=1,
+                    validation_data=(x_test, y_testc)
+                    )
+mlflow.end_run()
